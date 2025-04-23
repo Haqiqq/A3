@@ -1,0 +1,826 @@
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Scanner;
+import java.time.LocalDateTime;
+import java.util.Properties;
+
+// Jakarta Mail imports
+import jakarta.mail.Authenticator;
+import jakarta.mail.Message;
+import jakarta.mail.MessagingException;
+import jakarta.mail.PasswordAuthentication;
+import jakarta.mail.Session;
+import jakarta.mail.Transport;
+import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeMessage;
+
+public class Main {  // MAIN PROGRAMME.
+    private static Scanner scanner = new Scanner(System.in);
+    public static Administrator admin = new Administrator(1, "Haqiq", "admin@hospital.com");
+    private static AppointmentManager appointmentManager = new AppointmentManager();
+    private static NotificationService notificationService = new NotificationService();
+    private static List<EmergencyAlert> emergencyAlerts = new ArrayList<>();
+    private static ChatServer chatServer = new ChatServer();
+    private static ReminderService reminderService = new ReminderService(notificationService);
+    // Email configuration for the system
+    private static EmailConfig emailConfig;
+    private static boolean isEmailConfigured = false;
+
+    public static void main(String[] args) {
+        System.out.println("Hospital Management System");
+
+        // Setup the email configuration during startup
+        setupEmailConfig();
+
+        while (true) {
+            System.out.println("\nMain Menu:");
+            System.out.println("1. User Management");
+            System.out.println("2. Appointments");
+            System.out.println("3. Remote Checkup");
+            System.out.println("4. Emergency Services");
+            System.out.println("5. Send Direct Email");
+            System.out.println("6. Exit");
+            System.out.print("Choose: ");
+
+            int choice = scanner.nextInt();
+            scanner.nextLine();
+
+            switch (choice) {
+                case 1: userManagement(); break;
+                case 2: appointmentMenu(); break;
+                case 3: remoteChecks(); break;
+                case 4: emergencyMenu(); break;
+                case 5: sendDirectEmail(); break;
+                case 6: System.exit(0);
+                default: System.out.println("Invalid choice");
+            }
+        }
+    }
+
+    private static void setupEmailConfig() {
+        System.out.println("\n--- Email Configuration Setup ---");
+        System.out.println("This will configure your email for sending notifications");
+
+        System.out.print("Enter your email address: ");
+        String email = scanner.nextLine();
+
+        System.out.print("Enter your email password (app password for Gmail): ");
+        String password = scanner.nextLine();
+
+        // Automatically determine email provider and set SMTP settings
+        String smtpHost = "smtp.gmail.com"; // Default to Gmail
+        String smtpPort = "587";
+        boolean enableTls = true;
+
+        if (email.toLowerCase().contains("@gmail.com")) {
+            smtpHost = "smtp.gmail.com";
+        } else if (email.toLowerCase().contains("@outlook.com") ||
+                email.toLowerCase().contains("@hotmail.com")) {
+            smtpHost = "smtp-mail.outlook.com";
+        } else if (email.toLowerCase().contains("@yahoo.com")) {
+            smtpHost = "smtp.mail.yahoo.com";
+        } else if (email.toLowerCase().contains("@aol.com")) {
+            smtpHost = "smtp.aol.com";
+        } else {
+            System.out.println("Email provider not automatically recognized.");
+            System.out.print("Enter SMTP server host: ");
+            smtpHost = scanner.nextLine();
+        }
+
+        emailConfig = new EmailConfig(smtpHost, smtpPort, email, password, enableTls);
+        notificationService.setEmailConfig(emailConfig);
+        isEmailConfigured = true;
+
+        System.out.println("Email configuration completed successfully!");
+        System.out.println("Using SMTP server: " + smtpHost);
+    }
+
+    private static void sendDirectEmail() {
+        if (!isEmailConfigured) {
+            System.out.println("Email not configured yet!");
+            return;
+        }
+
+        System.out.print("Enter recipient email: ");
+        String recipient = scanner.nextLine();
+
+        System.out.print("Enter email subject: ");
+        String subject = scanner.nextLine();
+
+        System.out.println("Enter email body (type 'END' on a new line to finish):");
+        StringBuilder body = new StringBuilder();
+        String line;
+        while (!(line = scanner.nextLine()).equals("END")) {
+            body.append(line).append("\n");
+        }
+
+        try {
+            ((EmailNotification)notificationService.getSender()).sendCustomEmail(recipient, subject, body.toString());
+            System.out.println("Email sent successfully to " + recipient);
+        } catch (Exception e) {
+            System.out.println("Failed to send email: " + e.getMessage());
+        }
+    }
+
+    private static void userManagement() {
+        System.out.println("\nUser Management:");
+        System.out.println("1. Add Doctor");
+        System.out.println("2. Add Patient");
+        System.out.println("3. View Users");
+        System.out.print("Choose: ");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        switch (choice) {
+            case 1: addDoctor(); break;
+            case 2: addPatient(); break;
+            case 3: viewUsers(); break;
+            default: System.out.println("Invalid choice");
+        }
+    }
+
+    private static void addDoctor() {
+        System.out.print("Enter Doctor ID: ");
+        int id = scanner.nextInt();
+        scanner.nextLine();
+        System.out.print("Enter Name: ");
+        String name = scanner.nextLine();
+        System.out.print("Enter Email: ");
+        String email = scanner.nextLine();
+
+        Doctor doctor = new Doctor(id, name, email);
+        admin.addUser(doctor);
+        System.out.println("Doctor added!");
+    }
+
+    private static void addPatient() {
+        System.out.print("Enter Patient ID: ");
+        int id = scanner.nextInt();
+        scanner.nextLine();
+        System.out.print("Enter Name: ");
+        String name = scanner.nextLine();
+        System.out.print("Enter Email: ");
+        String email = scanner.nextLine();
+
+        Patient patient = new Patient(id, name, email);
+        System.out.print("Allow Remote checkup? (y/n): ");
+        if (scanner.nextLine().equalsIgnoreCase("y")) {
+            patient.allowRemoteCheckup();
+        }
+
+        addVitalSigns(patient);
+        admin.addUser(patient);
+        System.out.println("Patient added!");
+    }
+
+    private static void addVitalSigns(Patient patient) {
+        while (true) {
+            System.out.print("Enter vital type (BP/Oxygen/Temp) or 'done': ");
+            String type = scanner.nextLine();
+            if (type.equalsIgnoreCase("done")) break;
+
+            System.out.print("Enter value: ");
+            double value = scanner.nextDouble();
+            scanner.nextLine();
+
+            patient.addVitalSign(new VitalSign(type, value));
+        }
+    }
+
+    private static void viewUsers() {
+        admin.getUsers().forEach(user -> System.out.println(
+                "ID: " + user.getId() + ", Name: " + user.getName() + ", Type: " + user.getUserType()
+        ));
+    }
+
+    private static void appointmentMenu() {
+        System.out.println("\nAppointments:");
+        System.out.println("1. Schedule");
+        System.out.println("2. View All");
+        System.out.print("Choose: ");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        switch (choice) {
+            case 1: scheduleAppointment(); break;
+            case 2: viewAppointments(); break;
+            default: System.out.println("Invalid choice");
+        }
+    }
+
+    private static void scheduleAppointment() {
+        System.out.print("Enter Doctor ID: ");
+        int docId = scanner.nextInt();
+        scanner.nextLine();
+        System.out.print("Enter Patient ID: ");
+        int patId = scanner.nextInt();
+        scanner.nextLine();
+        System.out.print("Enter Date as 2005-12-24: ");
+        String date = scanner.nextLine();
+
+        Doctor doctor = null;
+        Patient patient = null;
+
+        for (User user : admin.getUsers()) {
+            if (user instanceof Doctor && user.getId() == docId) {
+                doctor = (Doctor)user;
+            } else if (user instanceof Patient && user.getId() == patId) {
+                patient = (Patient)user;
+            }
+        }
+
+        if (doctor != null && patient != null) {
+            String result = appointmentManager.requestAppt(date, doctor, patient);
+            System.out.println(result);
+        } else {
+            System.out.println("Doctor or Patient not found!");
+        }
+    }
+
+    private static void viewAppointments() {
+        appointmentManager.getAppointments().forEach(System.out::println);
+    }
+
+    private static void checkPatientVitals() {
+        System.out.print("Enter Patient ID: ");
+        int id = scanner.nextInt();
+        scanner.nextLine();
+
+        Patient patient = null;
+        for (User user : admin.getUsers()) {
+            if (user instanceof Patient && user.getId() == id) {
+                patient = (Patient)user;
+                break;
+            }
+        }
+
+        if (patient != null) {
+            patient.checkVitals();
+        } else {
+            System.out.println("Patient not found!");
+        }
+    }
+
+    private static void videoConsultation() {
+        System.out.print("Enter Doctor ID: ");
+        int docId = scanner.nextInt();
+        scanner.nextLine();
+        System.out.print("Enter Patient ID: ");
+        int patId = scanner.nextInt();
+        scanner.nextLine();
+
+        Doctor doctor = null;
+        Patient patient = null;
+
+        for (User user : admin.getUsers()) {
+            if (user instanceof Doctor && user.getId() == docId) {
+                doctor = (Doctor)user;
+            } else if (user instanceof Patient && user.getId() == patId) {
+                patient = (Patient)user;
+            }
+        }
+
+        if (doctor != null && patient != null) {
+            new VideoCall(doctor, patient).startCall();
+        } else {
+            System.out.println("Doctor or Patient not found!");
+        }
+    }
+
+    private static void chatMenu() {
+        System.out.println("\nChat System:");
+        System.out.println("1. Send Message");
+        System.out.println("2. View Chat History");
+        System.out.print("Choose: ");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        switch (choice) {
+            case 1:
+                System.out.print("Enter your name: ");
+                String sender = scanner.nextLine();
+                System.out.print("Enter recipient: ");
+                String recipient = scanner.nextLine();
+                System.out.print("Enter message: ");
+                String message = scanner.nextLine();
+                new ChatClient(sender, chatServer).sendMessage(recipient, message);
+                break;
+            case 2: chatServer.displayChatHistory(); break;
+            default: System.out.println("Invalid choice");
+        }
+    }
+
+    private static void remoteChecks() {
+        System.out.println("\nRemote Checkup:");
+        System.out.println("1. Check Patient Vitals");
+        System.out.println("2. Video Consultation");
+        System.out.println("3. Send Reminders");
+        System.out.println("4. Chat System");
+        System.out.print("Choose: ");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        switch (choice) {
+            case 1: checkPatientVitals(); break;
+            case 2: videoConsultation(); break;
+            case 3: sendReminders(); break;
+            case 4: chatMenu(); break;
+            default: System.out.println("Invalid choice");
+        }
+    }
+
+    private static void sendReminders() {
+        System.out.println("\nReminder System:");
+        System.out.println("1. Appointment Reminder");
+        System.out.println("2. Medication Reminder");
+        System.out.print("Choose: ");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        System.out.print("Enter Patient ID: ");
+        int id = scanner.nextInt();
+        scanner.nextLine();
+
+        Patient patient = null;
+        for (User user : admin.getUsers()) {
+            if (user instanceof Patient && user.getId() == id) {
+                patient = (Patient)user;
+                break;
+            }
+        }
+
+        if (patient != null) {
+            if (choice == 1) {
+                System.out.print("Enter appointment date: ");
+                String date = scanner.nextLine();
+                reminderService.sendAppointmentReminder(patient, date);
+            } else if (choice == 2) {
+                System.out.print("Enter medication name: ");
+                String med = scanner.nextLine();
+                reminderService.sendMedicationReminder(patient, med);
+            }
+        } else {
+            System.out.println("Patient not found!");
+        }
+    }
+
+    private static void emergencyMenu() {
+        System.out.println("\nEmergency Services:");
+        System.out.println("1. Trigger Panic Button");
+        System.out.println("2. View Alerts");
+        System.out.println("3. Configure Notifications");
+        System.out.print("Choose: ");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        switch (choice) {
+            case 1: triggerPanicButton(); break;
+            case 2: viewAlerts(); break;
+            case 3: configureNotifications(); break;
+            default: System.out.println("Invalid choice");
+        }
+    }
+
+    private static void triggerPanicButton() {
+        System.out.print("Enter Patient ID: ");
+        int id = scanner.nextInt();
+        scanner.nextLine();
+
+        Patient patient = null;
+        for (User user : admin.getUsers()) {
+            if (user instanceof Patient && user.getId() == id) {
+                patient = (Patient)user;
+                break;
+            }
+        }
+
+        if (patient != null) {
+            patient.getPanicButton().press();
+            emergencyAlerts.add(new EmergencyAlert(patient, "Panic Button", "Emergency triggered manually"));
+            notificationService.sendEmergencyAlert(patient, "Emergency alert triggered!");
+        } else {
+            System.out.println("Patient not found!");
+        }
+    }
+
+    private static void viewAlerts() {
+        emergencyAlerts.forEach(System.out::println);
+    }
+
+    private static void configureNotifications() {
+        System.out.println("Select Notification Method:");
+        System.out.println("1. Email");
+        System.out.println("2. SMS");
+        System.out.print("Choose: ");
+
+        int choice = scanner.nextInt();
+        scanner.nextLine();
+
+        notificationService.setNotificationMethod(choice == 2 ? "SMS" : "Email");
+        System.out.println("Notification method updated!");
+    }
+}
+
+// Email configuration class to store email settings
+class EmailConfig {
+    private String smtpHost;
+    private String smtpPort;
+    private String username;
+    private String password;
+    private boolean enableTls;
+
+    public EmailConfig(String smtpHost, String smtpPort, String username, String password, boolean enableTls) {
+        this.smtpHost = smtpHost;
+        this.smtpPort = smtpPort;
+        this.username = username;
+        this.password = password;
+        this.enableTls = enableTls;
+    }
+
+    public String getSmtpHost() { return smtpHost; }
+    public String getSmtpPort() { return smtpPort; }
+    public String getUsername() { return username; }
+    public String getPassword() { return password; }
+    public boolean isEnableTls() { return enableTls; }
+}
+
+// BASE CLASS AND FOLLOWED BY ALL CLASSES
+abstract class User {
+    private int id;
+    private String name;
+    private String email;
+    private String userType;
+
+    public User(int id, String name, String email, String userType) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.userType = userType;
+    }
+
+    public int getId() { return id; }
+    public String getName() { return name; }
+    public String getEmail() { return email; }
+    public String getUserType() { return userType; }
+}
+
+class Patient extends User {
+    private List<VitalSign> vitalSigns = new ArrayList<>();
+    private boolean isRemCheckupAllowed;
+    private PanicButton panicButton;
+
+    public Patient(int id, String name, String email) {
+        super(id, name, email, "Patient");
+        this.panicButton = new PanicButton(this);
+    }
+
+    public void allowRemoteCheckup() {
+        this.isRemCheckupAllowed = true;
+    }
+
+    public void addVitalSign(VitalSign vital) {
+        vitalSigns.add(vital);
+    }
+
+    public void checkVitals() {
+        System.out.println("\nVital Signs for " + getName() + ":");
+        for (VitalSign vital : vitalSigns) {
+            System.out.println(vital);
+            if (isCritical(vital)) {
+                System.out.println("ALERT: Critical " + vital.getType() + " level!");
+            }
+        }
+    }
+
+    private boolean isCritical(VitalSign vital) {
+        String type = vital.getType();
+        double value = vital.getValue();
+        return (type.equals("BP") && (value > 140 || value < 90)) ||
+                (type.equals("Oxygen") && value < 90) ||
+                (type.equals("Temp") && (value > 99 || value < 98));
+    }
+
+    public PanicButton getPanicButton() {
+        return panicButton;
+    }
+}
+
+class Doctor extends User {
+    public Doctor(int id, String name, String email) {
+        super(id, name, email, "Doctor");
+    }
+}
+
+class Administrator extends User {
+    private List<User> users = new ArrayList<>();
+
+    public Administrator(int id, String name, String email) {
+        super(id, name, email, "Administrator");
+    }
+
+    public void addUser(User user) {
+        users.add(user);
+    }
+
+    public List<User> getUsers() {
+        return users;
+    }
+}
+
+class VitalSign {
+    private String type;
+    private double value;
+    private LocalDateTime timestamp;
+
+    public VitalSign(String type, double value) {
+        this.type = type;
+        this.value = value;
+        this.timestamp = LocalDateTime.now();
+    }
+
+    public String getType() { return type; }
+    public double getValue() { return value; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+
+    public String toString() {
+        // Returns format like: "BP: 120.50 (2023-11-15T14:30)"
+        return type + ": " + String.format("%.2f", value) + " (" + timestamp + ")";
+    }
+}
+
+class Appointment {
+    private String date;
+    private Doctor doctor;
+    private Patient patient;
+
+    public Appointment(String date, Doctor doctor, Patient patient) {
+        this.date = date;
+        this.doctor = doctor;
+        this.patient = patient;
+    }
+
+    public String toString() {
+        return String.format("Appointment on %s: %s with Dr. %s",
+                date, patient.getName(), doctor.getName());
+    }
+}
+
+class AppointmentManager {
+    private List<Appointment> appointments = new ArrayList<>();
+    private NotificationService notificationService = new NotificationService();
+
+    public String requestAppt(String date, Doctor doctor, Patient patient) {
+        Appointment appointment = new Appointment(date, doctor, patient);
+        appointments.add(appointment);
+        notificationService.sendAppointmentNotification(doctor, patient, date);
+        return "Appointment scheduled successfully!";
+    }
+
+    public List<Appointment> getAppointments() {
+        return appointments;
+    }
+}
+
+class EmergencyAlert {
+    private Patient patient;
+    private String type;
+    private String message;
+    private LocalDateTime timestamp;
+
+    public EmergencyAlert(Patient patient, String type, String message) {
+        this.patient = patient;
+        this.type = type;
+        this.message = message;
+        this.timestamp = LocalDateTime.now();
+    }
+
+    public String toString() {
+        return String.format("[%s] EMERGENCY: %s for %s - %s",
+                timestamp, type, patient.getName(), message);
+    }
+}
+
+class PanicButton {
+    private Patient patient;
+
+    public PanicButton(Patient patient) {
+        this.patient = patient;
+    }
+
+    public void press() {
+        System.out.println("PANIC BUTTON PRESSED BY " + patient.getName() + " !!!");
+    }
+}
+
+class NotificationService {
+    private NotificationSender sender;
+    private EmailConfig emailConfig;
+
+    public NotificationService() {
+        this.sender = new EmailNotification();
+    }
+
+    public NotificationSender getSender() {
+        return sender;
+    }
+
+    public void setEmailConfig(EmailConfig emailConfig) {
+        this.emailConfig = emailConfig;
+        if (sender instanceof EmailNotification) {
+            ((EmailNotification) sender).setEmailConfig(emailConfig);
+        }
+    }
+
+    public void setNotificationMethod(String method) {
+        if (method.equalsIgnoreCase("SMS")) {
+            this.sender = new SMSNotification();
+        } else {
+            EmailNotification emailNotification = new EmailNotification();
+            emailNotification.setEmailConfig(this.emailConfig);
+            this.sender = emailNotification;
+        }
+    }
+
+    public void sendAppointmentNotification(Doctor doctor, Patient patient, String date) {
+        String doctorMsg = String.format("New appointment with %s on %s",
+                patient.getName(), date);
+        String patientMsg = String.format("Your appointment with Dr. %s on %s",
+                doctor.getName(), date);
+
+        sender.sendNotification(doctor.getEmail(), doctorMsg);
+        sender.sendNotification(patient.getEmail(), patientMsg);
+    }
+
+    public void sendEmergencyAlert(Patient patient, String message) {
+        String alertMsg = String.format("EMERGENCY ALERT: %s - %s",
+                patient.getName(), message);
+        sender.sendNotification(patient.getEmail(), alertMsg);
+
+        // Notify administrators
+        for (User user : Main.admin.getUsers()) {
+            if (user instanceof Administrator) {
+                sender.sendNotification(user.getEmail(), alertMsg);
+            }
+        }
+    }
+
+    public void sendReminder(String recipient, String message) {
+        sender.sendNotification(recipient, message);
+    }
+}
+
+interface NotificationSender {
+    void sendNotification(String recipient, String message);
+}
+
+class EmailNotification implements NotificationSender {
+    private EmailConfig emailConfig;
+
+    public void setEmailConfig(EmailConfig emailConfig) {
+        this.emailConfig = emailConfig;
+    }
+
+    public void sendNotification(String recipient, String message) {
+        // First print the notification to console for debugging
+        System.out.println("\n--- Email Notification ---");
+        System.out.println("To: " + recipient);
+        System.out.println("Subject: Hospital Notification");
+        System.out.println("Body: " + message);
+
+        // Then try to send actual email if configuration exists
+        try {
+            sendEmail(recipient, "Hospital Notification", message);
+            System.out.println("Email sent successfully to " + recipient);
+        } catch (Exception e) {
+            System.out.println("Failed to send email: " + e.getMessage());
+        }
+    }
+
+    public void sendCustomEmail(String recipient, String subject, String body) throws MessagingException {
+        System.out.println("\n--- Custom Email ---");
+        System.out.println("To: " + recipient);
+        System.out.println("Subject: " + subject);
+        System.out.println("Body: " + body);
+
+        sendEmail(recipient, subject, body);
+    }
+
+    private void sendEmail(String to, String subject, String body) throws MessagingException {
+        if (emailConfig == null) {
+            throw new MessagingException("Email configuration not set");
+        }
+
+        // Set mail properties
+        Properties props = new Properties();
+        props.put("mail.smtp.auth", "true");
+        props.put("mail.smtp.host", emailConfig.getSmtpHost());
+        props.put("mail.smtp.port", emailConfig.getSmtpPort());
+
+        if (emailConfig.isEnableTls()) {
+            props.put("mail.smtp.starttls.enable", "true");
+        }
+
+        // Create session with authenticator
+        Session session = Session.getInstance(props, new Authenticator() {
+            @Override
+            protected PasswordAuthentication getPasswordAuthentication() {
+                return new PasswordAuthentication(
+                        emailConfig.getUsername(),
+                        emailConfig.getPassword()
+                );
+            }
+        });
+
+        // Create and send message
+        Message message = new MimeMessage(session);
+        message.setFrom(new InternetAddress(emailConfig.getUsername()));
+        message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(to));
+        message.setSubject(subject);
+        message.setText(body);
+
+        Transport.send(message);
+    }
+}
+
+class SMSNotification implements NotificationSender {
+    public void sendNotification(String recipient, String message) {
+        System.out.println("\n SMS Notification");
+        System.out.println("To: " + recipient);
+        System.out.println("Message: " + message);
+    }
+}
+
+class VideoCall {
+    private Doctor doctor;
+    private Patient patient;
+
+    public VideoCall(Doctor doctor, Patient patient) {
+        this.doctor = doctor;
+        this.patient = patient;
+    }
+
+    public void startCall() {
+        System.out.println("\nStarting Video Call");
+        System.out.println("Between Dr. " + doctor.getName() +
+                " and " + patient.getName());
+        System.out.println("Video call started successfully\n");
+    }
+}
+
+class ChatServer {
+    private List<String> messages = new ArrayList<>();
+
+    public void sendMessage(String sender, String recipient, String message) {
+        String formattedMsg = String.format("[%s to %s]: %s",
+                sender, recipient, message);
+        messages.add(formattedMsg);
+        System.out.println("Message sent successfully!");
+    }
+
+    public void displayChatHistory() {
+        System.out.println("\nChat History");
+        if (messages.isEmpty()) {
+            System.out.println("No messages yet");
+        } else {
+            messages.forEach(System.out::println);
+        }
+    }
+}
+
+class ChatClient {
+    private String user;
+    private ChatServer server;
+
+    public ChatClient(String user, ChatServer server) {
+        this.user = user;
+        this.server = server;
+    }
+
+    public void sendMessage(String recipient, String message) {
+        server.sendMessage(user, recipient, message);
+    }
+}
+
+class ReminderService {
+    private NotificationService notificationService;
+
+    public ReminderService(NotificationService notificationService) {
+        this.notificationService = notificationService;
+    }
+
+    public void sendAppointmentReminder(Patient patient, String date) {
+        String message = String.format("Reminder: You have an appointment on %s", date);
+        notificationService.sendReminder(patient.getEmail(), message);
+    }
+
+    public void sendMedicationReminder(Patient patient, String medication) {
+        String message = String.format("Reminder: Time to take your %s", medication);
+        notificationService.sendReminder(patient.getEmail(), message);
+    }
+}
